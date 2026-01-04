@@ -1,231 +1,170 @@
-# 🤖 AI Terminal
+# AI Terminal Desktop - GNOME Edition
 
-A Flask-based web UI that combines a terminal interface with Ollama AI and SSH capabilities, allowing you to run commands on remote servers with AI-assisted command generation.
+A GTK4/Libadwaita desktop application for AI-powered terminal operations on Fedora.
 
 ## Features
 
-- **Web-based Terminal UI**: Modern, dark-themed terminal interface
-- **Ollama Integration**: Generate commands and get assistance using local Ollama AI models
-- **SSH Support**: Connect to and execute commands on remote servers
-- **Real-time Communication**: WebSocket-based real-time updates
-- **AI Command Generation**: Describe what you want to do, and the AI generates the command
-- **Multi-tab Interface**: Switch between terminal and AI chat modes
+- **Native GNOME Experience**: Built with GTK4 and Libadwaita for seamless integration with GNOME desktop
+- **SSH Connection Management**: Connect to remote servers via SSH
+- **AI-Powered Command Execution**: Use Ollama AI to interpret natural language requests and execute commands
+- **Conversation History**: Track your interactions with the AI
+- **Settings Persistence**: Save connection settings for quick access
 
-## Prerequisites
+## Installation on Fedora
 
-- Python 3.7+
-- Ollama running locally (http://localhost:11434)
-- SSH access to target servers (optional)
+### 1. Install System Dependencies
 
-## Installation
-
-1. Clone the repository:
 ```bash
-cd /home/fotis/gitea-repo/aiterminal
+# Install GTK4 and Libadwaita
+sudo dnf install gtk4 libadwaita
+
+# Install Python development packages
+sudo dnf install python3-devel python3-pip python3-gobject gtk4-devel
+
+# Install additional dependencies
+sudo dnf install gobject-introspection-devel cairo-devel cairo-gobject-devel
 ```
 
-2. Create a virtual environment:
+### 2. Install Python Dependencies
+
 ```bash
+# Create a virtual environment (recommended)
 python3 -m venv venv
 source venv/bin/activate
-```
 
-3. Install dependencies:
-```bash
+# Install Python packages
 pip install -r requirements.txt
 ```
 
-4. Copy the example environment file:
+### 3. Install Ollama (if not already installed)
+
 ```bash
-cp .env.example .env
+# Download and install Ollama
+curl -fsSL https://ollama.com/install.sh | sh
+
+# Pull a model (e.g., llama2)
+ollama pull llama2
 ```
 
-5. Edit `.env` with your settings:
+## Running the Application
+
 ```bash
-OLLAMA_HOST=http://localhost:11434
-OLLAMA_MODEL=llama2
-SECRET_KEY=your-secure-secret-key
+# Make sure you're in the AIDesktop directory
+cd AIDesktop
+
+# If using virtual environment, activate it
+source venv/bin/activate
+
+# Run the application
+python3 main.py
+```
+
+Or make it executable and run directly:
+
+```bash
+chmod +x main.py
+./main.py
 ```
 
 ## Usage
 
-### Starting the Application
+1. **Configure SSH Connection**:
+   - Enter your SSH server details in the left sidebar
+   - Click "Connect to SSH" to establish connection
+
+2. **Configure Ollama**:
+   - Set the Ollama URL (default: http://localhost:11434)
+   - Select your AI model
+   - Customize AI name and role
+   - Click "Test Ollama Connection" to verify
+
+3. **Start Chatting**:
+   - Type natural language requests in the input field
+   - The AI will interpret and execute commands on your SSH server
+   - View command output and AI responses in the chat area
+
+## Examples
+
+- "Show me the current directory"
+- "List all files in /var/log"
+- "Check disk usage"
+- "What processes are using the most memory?"
+- "Create a new directory called test"
+
+## Creating a Desktop Entry (Optional)
+
+Create a `.desktop` file for easy launching:
 
 ```bash
-python app.py
+# Create the desktop file
+cat > ~/.local/share/applications/aiterminal-desktop.desktop <<EOF
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=AI Terminal Desktop
+Comment=AI-powered terminal with SSH and Ollama
+Exec=/path/to/AIDesktop/main.py
+Icon=utilities-terminal
+Terminal=false
+Categories=System;Utility;
+EOF
+
+# Make it executable
+chmod +x ~/.local/share/applications/aiterminal-desktop.desktop
 ```
-
-The application will be available at `http://localhost:5000`
-
-### Connecting to SSH Servers
-
-1. Fill in the SSH connection form in the sidebar:
-   - Host: The server address
-   - Port: SSH port (default 22)
-   - Username: SSH username
-   - Password: SSH password (or leave empty if using key)
-   - Key File: Path to SSH private key (optional)
-
-2. Click "Connect SSH"
-
-### Running Commands
-
-**Direct Commands**: Type a command directly in the terminal tab and press Enter
-
-**AI-Generated Commands**: Use any of these formats:
-- `help: list all files recursively` - AI generates the command
-- `generate: count lines in all Python files` - AI generates the command
-- Any text ending with `?` - AI will interpret as a request
-
-### AI Chat
-
-Switch to the "AI Chat" tab to have a conversation with the AI about any topic or get command help.
-
-## Architecture
-
-### Backend (Flask)
-
-- **app.py**: Main Flask application with SocketIO for real-time communication
-- **OllamaClient**: Interface to local Ollama instance
-- **SSHClient**: Wrapper around Paramiko for SSH connections
-- WebSocket endpoints for command execution and AI responses
-
-### Frontend
-
-- **HTML/CSS/JS**: Terminal-like UI with tab support
-- **Socket.IO Client**: Real-time bidirectional communication
-- **Dark Theme**: GitHub-inspired dark mode
-
-## Configuration
-
-### Environment Variables
-
-- `OLLAMA_HOST`: URL to Ollama API (default: http://localhost:11434)
-- `OLLAMA_MODEL`: Default Ollama model (default: llama2)
-- `SECRET_KEY`: Flask secret key for sessions
-- `FLASK_ENV`: Environment (development/production)
-- `FLASK_DEBUG`: Enable debug mode
-
-### Available Ollama Models
-
-The app supports any Ollama model. Popular options:
-- `llama2` - General purpose
-- `mistral` - Fast and efficient
-- `neural-chat` - Optimized for chat
-- `orca-mini` - Smaller model
-- `dolphin-mixtral` - High quality
-
-## API Endpoints
-
-### HTTP Endpoints
-
-- `GET /` - Main UI
-- `GET /api/ollama/models` - List available Ollama models
-- `POST /api/ollama/generate` - Generate response from Ollama
-
-### WebSocket Events
-
-**Client → Server:**
-- `ssh_connect`: Connect to SSH server
-- `ssh_command`: Execute command on SSH server
-- `ollama_prompt`: Send prompt to Ollama
-- `ollama_command_generation`: Generate command from description
-
-**Server → Client:**
-- `connection_response`: Connection established
-- `ssh_status`: SSH connection status
-- `command_output`: Output from executed command
-- `ai_response`: Response from Ollama prompt
-- `generated_command`: Generated command from AI
-
-## Security Notes
-
-⚠️ **Important for Production:**
-
-1. Change the `SECRET_KEY` in `.env`
-2. Use SSH keys instead of passwords
-3. Run behind a reverse proxy (nginx, Apache)
-4. Enable HTTPS/WSS
-5. Implement authentication/authorization
-6. Restrict CORS origins
-7. Validate all user inputs
-8. Run with limited filesystem permissions
-9. Use firewall rules to restrict access
-10. Monitor and log all executed commands
 
 ## Troubleshooting
 
+### GTK4 Import Error
+
+If you get an error about GTK4 not being found:
+
+```bash
+# Make sure PyGObject is installed system-wide
+sudo dnf install python3-gobject
+
+# Or reinstall in your virtual environment
+pip install --force-reinstall PyGObject
+```
+
+### Libadwaita Not Found
+
+```bash
+# Install libadwaita development files
+sudo dnf install libadwaita-devel
+```
+
+### SSH Connection Issues
+
+- Verify the SSH server is accessible
+- Check firewall settings
+- Ensure correct credentials are provided
+
 ### Ollama Connection Issues
 
-```bash
-# Check if Ollama is running
-curl http://localhost:11434/api/tags
+- Verify Ollama is running: `systemctl status ollama`
+- Start Ollama if needed: `ollama serve`
+- Check the Ollama URL is correct
 
-# Pull a model if needed
-ollama pull llama2
-```
+## Configuration
 
-### SSH Connection Fails
+Settings are stored in: `~/.config/aiterminal-desktop/settings.json`
 
-- Verify SSH server is running: `ssh -v user@host`
-- Check credentials and port
-- Ensure key file has correct permissions: `chmod 600 ~/.ssh/id_rsa`
-- Check if key authentication is enabled on server
+## Architecture
 
-### WebSocket Connection Issues
+- **main.py**: Main application window and GTK UI
+- **ssh_client.py**: SSH connection management
+- **ollama_client.py**: Ollama AI integration
+- **settings_manager.py**: Settings persistence
 
-- Check browser console for errors
-- Verify Flask is running with SocketIO support
-- Check firewall rules
-- Ensure eventlet is installed: `pip install eventlet`
+## Requirements
 
-## Development
-
-### Running in Development Mode
-
-```bash
-export FLASK_ENV=development
-export FLASK_DEBUG=True
-python app.py
-```
-
-### Testing SSH Connection Locally
-
-```bash
-# Create a test user
-sudo useradd -m testuser
-sudo passwd testuser
-
-# Use localhost in the SSH form
-```
+- Fedora 35+ (or any Linux with GNOME 42+)
+- Python 3.9+
+- GTK4
+- Libadwaita 1.0+
+- Ollama running locally or remotely
 
 ## License
 
-MIT
-
-## Contributing
-
-Contributions are welcome! Please:
-
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
-
-## Future Enhancements
-
-- [ ] Command history
-- [ ] Syntax highlighting for code
-- [ ] Multiple SSH sessions
-- [ ] File transfer via SFTP
-- [ ] Session recording
-- [ ] User authentication
-- [ ] Command scheduling
-- [ ] Output filtering/search
-- [ ] Custom prompt engineering
-- [ ] Integration with other LLMs
-
-## Support
-
-For issues and questions, please use the GitHub issues page.
+MIT License - Same as the original AI Terminal project
