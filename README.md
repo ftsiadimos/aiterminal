@@ -1,6 +1,6 @@
 # AI Terminal Desktop - GNOME Edition
 
-![Screenshot](image.png)
+![Screenshot](https://github.com/ftsiadimos/aiterminal/blob/main/AIDesktop/image.png)
 
 A GTK4/Libadwaita desktop application for AI-powered terminal operations on Fedora.
 
@@ -42,7 +42,7 @@ A GTK4/Libadwaita desktop application for AI-powered terminal operations on Fedo
 
 For easy installation on RPM-based systems, download the pre-built RPM package:
 
-[Download aiterminal-desktop-1.0.0-1.el9.noarch.rpm](aiterminal-desktop-1.0.0-1.el9.noarch.rpm)
+[Download aiterminal-desktop-1.0.0-1.el9.noarch.rpm](https://github.com/ftsiadimos/aiterminal/blob/main/AIDesktop/aiterminal-desktop-1.0.0-1.el9.noarch.rpm)
 
 Then install with:
 ```bash
