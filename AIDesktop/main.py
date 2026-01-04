@@ -1342,10 +1342,10 @@ class AITerminalApp(Adw.Application):
             transient_for=self.props.active_window,
             application_name="AI Terminal Desktop",
             application_icon="utilities-terminal",
-            developer_name="AI Terminal Team",
+            developer_name="Fotios Tsiadimos",
             version="1.0.0",
             comments="Desktop AI Terminal with SSH and Ollama integration",
-            website="https://github.com/yourusername/aiterminal",
+            website="https://github.com/ftsiadimos/aiterminal",
             license_type=Gtk.License.MIT_X11
         )
         about.present()
