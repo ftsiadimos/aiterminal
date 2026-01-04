@@ -2,6 +2,23 @@
 
 A GTK4/Libadwaita desktop application for AI-powered terminal operations on Fedora.
 
+## Table of Contents
+
+- [Features](#features)
+- [Quick Start](#quick-start)
+- [Installation](#installation)
+  - [Automated Installation (Recommended)](#automated-installation-recommended)
+  - [Manual Installation](#manual-installation)
+- [Running the Application](#running-the-application)
+- [Usage](#usage)
+- [Examples](#examples)
+- [Creating a Desktop Entry](#creating-a-desktop-entry-optional)
+- [Troubleshooting](#troubleshooting)
+- [Configuration](#configuration)
+- [Architecture](#architecture)
+- [Requirements](#requirements)
+- [License](#license)
+
 ## Features
 
 - **Native GNOME Experience**: Built with GTK4 and Libadwaita for seamless integration with GNOME desktop
@@ -10,9 +27,46 @@ A GTK4/Libadwaita desktop application for AI-powered terminal operations on Fedo
 - **Conversation History**: Track your interactions with the AI
 - **Settings Persistence**: Save connection settings for quick access
 
-## Installation on Fedora
+## Quick Start
 
-### 1. Install System Dependencies
+1. Run the automated installer: `./install.sh`
+2. Launch the app: `python3 main.py`
+3. Configure SSH and Ollama settings
+4. Start chatting with your AI terminal!
+
+## Installation
+
+### Automated Installation (Recommended)
+
+The `install.sh` script automates the entire installation process for Fedora systems. It handles:
+
+- Installing all required system dependencies via `dnf`
+- Installing Python packages
+- Optionally installing and configuring Ollama with the llama2 model
+- Making the main script executable
+- Optionally creating a desktop entry for easy launching
+
+To use it:
+
+```bash
+# Make the script executable
+chmod +x install.sh
+
+# Run the installer
+./install.sh
+```
+
+The script will prompt you for:
+- Whether to install Ollama (if not present)
+- Whether to create a desktop entry
+
+This is the easiest way to get started and ensures all dependencies are properly installed.
+
+### Manual Installation
+
+If you prefer to install manually or are on a different distribution, follow these steps:
+
+#### 1. Install System Dependencies
 
 ```bash
 # Install GTK4 and Libadwaita
@@ -25,7 +79,7 @@ sudo dnf install python3-devel python3-pip python3-gobject gtk4-devel
 sudo dnf install gobject-introspection-devel cairo-devel cairo-gobject-devel
 ```
 
-### 2. Install Python Dependencies
+#### 2. Install Python Dependencies
 
 ```bash
 # Create a virtual environment (recommended)
@@ -36,7 +90,7 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 3. Install Ollama (if not already installed)
+#### 3. Install Ollama (if not already installed)
 
 ```bash
 # Download and install Ollama
