@@ -473,6 +473,7 @@ class AITerminalWindow(Adw.ApplicationWindow):
         self.chat_view = Gtk.TextView()
         self.chat_view.set_editable(False)
         self.chat_view.set_cursor_visible(False)
+        self.chat_view.set_focusable(False)
         self.chat_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
         self.chat_view.set_margin_start(16)
         self.chat_view.set_margin_end(16)
@@ -544,6 +545,11 @@ class AITerminalWindow(Adw.ApplicationWindow):
         input_frame.append(input_box)
         content_box.append(input_frame)
         
+        # Add window-level key controller for navigation shortcuts
+        window_key_controller = Gtk.EventControllerKey()
+        window_key_controller.connect("key-pressed", self.on_window_key_pressed)
+        self.add_controller(window_key_controller)
+        
         return content_box
     
     def append_chat_message(self, role, message, tag=None):
@@ -575,6 +581,36 @@ class AITerminalWindow(Adw.ApplicationWindow):
         end_iter = self.chat_buffer.get_end_iter()
         mark = self.chat_buffer.create_mark(None, end_iter, False)
         self.chat_view.scroll_to_mark(mark, 0.0, True, 0.0, 1.0)
+    
+    def scroll_to_top(self):
+        """Scroll the chat view to the top"""
+        if hasattr(self, 'chat_view') and self.chat_view is not None:
+            start_iter = self.chat_buffer.get_start_iter()
+            self.chat_view.scroll_to_iter(start_iter, 0.0, True, 0.0, 0.0)
+        return False  # Remove from idle queue
+    
+    def scroll_to_bottom(self):
+        """Scroll the chat view to the bottom"""
+        if hasattr(self, 'chat_view') and self.chat_view is not None:
+            end_iter = self.chat_buffer.get_end_iter()
+            mark = self.chat_buffer.create_mark(None, end_iter, False)
+            self.chat_view.scroll_to_mark(mark, 0.0, True, 0.0, 1.0)
+        return False  # Remove from idle queue
+    
+    def on_window_key_pressed(self, controller, keyval, keycode, state):
+        """Handle window-level key press events for navigation"""
+        from gi.repository import Gdk
+        
+        # Check if Home key was pressed - scroll to top
+        if keyval == Gdk.KEY_Home:
+            self.scroll_to_top()
+            return True  # Stop event propagation
+        # Check if End key was pressed - scroll to bottom
+        elif keyval == Gdk.KEY_End:
+            self.scroll_to_bottom()
+            return True  # Stop event propagation
+        
+        return False
     
     def on_key_pressed(self, controller, keyval, keycode, state):
         """Handle key press events for tab completion"""
@@ -1077,8 +1113,8 @@ RESPONSE: Hello! I'm {ai_name}, your {ai_role}. How can I help you today?
                 
                 if success:
                     # Truncate very long output
-                    if len(output) > 5000:
-                        output = output[:5000] + f"\n... (output truncated, {len(output)} chars total)"
+                    if len(output) > 150000:
+                        output = output[:150000] + f"\n... (output truncated, {len(output)} chars total)"
                     GLib.idle_add(self.append_chat_message, "OUTPUT", output or "(no output)", "output")
                     
                     # Show updated directory if it changed
