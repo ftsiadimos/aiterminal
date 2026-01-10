@@ -29,7 +29,8 @@ sudo dnf install -y \
     cairo-gobject-devel \
     python3-cairo \
     python3-paramiko \
-    python3-requests
+    python3-requests \
+    python3-dotenv
 
 if [ $? -ne 0 ]; then
     echo "Error: Failed to install system dependencies"
@@ -39,7 +40,7 @@ fi
 # Install additional Python packages user-level (not in venv)
 echo ""
 echo "Installing additional Python dependencies..."
-pip3 install --user paramiko requests
+pip3 install --user paramiko requests python-dotenv
 
 if [ $? -ne 0 ]; then
     echo "Warning: Failed to install some Python dependencies, but continuing..."
