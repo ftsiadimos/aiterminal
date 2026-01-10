@@ -17,6 +17,21 @@ from local_client import LocalClient
 from ollama_client import OllamaClient
 from settings_manager import SettingsManager
 
+# Ensure the application's directory and the project root are on sys.path so
+# top-level modules like `config` can be imported when running from the
+# `AIDesktop` directory or after installing the package into /opt
+import sys
+_app_dir = os.path.dirname(os.path.abspath(__file__))
+_project_root = os.path.abspath(os.path.join(_app_dir, '..'))
+for _p in (_app_dir, _project_root):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+import config
+
+# Maximum number of characters to display from command output by default
+MAX_OUTPUT_CHARS = 150000
+
 class AITerminalWindow(Adw.ApplicationWindow):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -434,6 +449,12 @@ class AITerminalWindow(Adw.ApplicationWindow):
         self.ai_role_entry.set_title("AI Role")
         self.ai_role_entry.set_text("Linux Expert")
         ai_personality_group.add(self.ai_role_entry)
+        
+        # Max output characters setting (numeric entry)
+        self.max_output_entry = Adw.EntryRow()
+        self.max_output_entry.set_title("Max Output Characters")
+        self.max_output_entry.set_text(str(MAX_OUTPUT_CHARS))
+        ai_personality_group.add(self.max_output_entry)
         
         ai_page.add(ai_personality_group)
         
@@ -1112,9 +1133,16 @@ RESPONSE: Hello! I'm {ai_name}, your {ai_role}. How can I help you today?
                 success, output = self.ssh_client.execute_command(command)
                 
                 if success:
-                    # Truncate very long output
-                    if len(output) > 150000:
-                        output = output[:150000] + f"\n... (output truncated, {len(output)} chars total)"
+                    # Truncate very long output based on user setting (fallback to default)
+                    max_output = self.saved_settings.get('max_output_chars', MAX_OUTPUT_CHARS)
+                    try:
+                        max_output = int(max_output)
+                        if max_output < 0:
+                            max_output = MAX_OUTPUT_CHARS
+                    except Exception:
+                        max_output = MAX_OUTPUT_CHARS
+                    if len(output) > max_output:
+                        output = output[:max_output] + f"\n... (output truncated, {len(output)} chars total)"
                     GLib.idle_add(self.append_chat_message, "OUTPUT", output or "(no output)", "output")
                     
                     # Show updated directory if it changed
@@ -1224,6 +1252,8 @@ RESPONSE: Hello! I'm {ai_name}, your {ai_role}. How can I help you today?
             self.ollama_host_entry.set_text(self.saved_settings.get('ollama_url', 'http://localhost:11434'))
             self.ai_name_entry.set_text(self.saved_settings.get('ai_name', 'Jarvis'))
             self.ai_role_entry.set_text(self.saved_settings.get('ai_role', 'Linux Expert'))
+            # Load max output chars (fallback to constant if missing)
+            self.max_output_entry.set_text(str(self.saved_settings.get('max_output_chars', MAX_OUTPUT_CHARS)))
             
             # Load saved model selection
             saved_model = self.saved_settings.get('ollama_model', 'llama2')
@@ -1250,13 +1280,22 @@ RESPONSE: Hello! I'm {ai_name}, your {ai_role}. How can I help you today?
             else:
                 last_server = ""
             
+            # Validate and save max_output_chars
+            try:
+                max_output_val = int(self.max_output_entry.get_text())
+                if max_output_val < 0:
+                    max_output_val = MAX_OUTPUT_CHARS
+            except Exception:
+                max_output_val = MAX_OUTPUT_CHARS
+
             settings = {
                 'ssh_servers': self.ssh_servers,  # Save all servers
                 'last_server': last_server,  # Remember last used server
                 'ollama_url': self.ollama_host_entry.get_text(),
                 'ollama_model': selected_model,
                 'ai_name': self.ai_name_entry.get_text(),
-                'ai_role': self.ai_role_entry.get_text()
+                'ai_role': self.ai_role_entry.get_text(),
+                'max_output_chars': max_output_val
             }
             
             self.saved_settings = settings
@@ -1379,7 +1418,7 @@ class AITerminalApp(Adw.Application):
             application_name="AI Terminal Desktop",
             application_icon="utilities-terminal",
             developer_name="Fotios Tsiadimos",
-            version="1.0.0",
+            version=config.APP_VERSION,
             comments="Desktop AI Terminal with SSH and Ollama integration",
             website="https://github.com/ftsiadimos/aiterminal",
             license_type=Gtk.License.MIT_X11

@@ -2,6 +2,9 @@
 
 # Installation script for AI Terminal Desktop on Fedora
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+VERSION=$(cat "$SCRIPT_DIR/../VERSION" 2>/dev/null || echo "1.0.0")
+
 echo "===================================="
 echo "AI Terminal Desktop Installation"
 echo "===================================="
@@ -75,7 +78,7 @@ if [ "$create_desktop" = "y" ] || [ "$create_desktop" = "Y" ]; then
     
     cat > "$DESKTOP_FILE" <<EOF
 [Desktop Entry]
-Version=1.0
+Version=$VERSION
 Type=Application
 Name=AI Terminal Desktop
 Comment=AI-powered terminal with SSH and Ollama
