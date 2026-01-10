@@ -1,20 +1,18 @@
 # AI Terminal Desktop - GNOME Edition
 
-![Screenshot](https://github.com/ftsiadimos/aiterminal/blob/main/AIDesktop/image.png)
+![Screenshot](image.png)
 
 A GTK4/Libadwaita desktop application for AI-powered terminal operations on Fedora.
 
 ## Table of Contents
 
 - [Features](#features)
-- [Quick Start](#quick-start)
 - [Installation](#installation)
   - [Automated Installation (Recommended)](#automated-installation-recommended)
   - [Manual Installation](#manual-installation)
 - [Running the Application](#running-the-application)
 - [Usage](#usage)
 - [Examples](#examples)
-- [Creating a Desktop Entry](#creating-a-desktop-entry-optional)
 - [Troubleshooting](#troubleshooting)
 - [Configuration](#configuration)
 - [Architecture](#architecture)
@@ -29,24 +27,25 @@ A GTK4/Libadwaita desktop application for AI-powered terminal operations on Fedo
 - **Conversation History**: Track your interactions with the AI
 - **Settings Persistence**: Save connection settings for quick access
 
-## Quick Start
-
-1. Run the automated installer: `./install.sh`
-2. Launch the app: `python3 main.py`
-3. Configure SSH and Ollama settings
-4. Start chatting with your AI terminal!
 
 ## Installation
 
 ### RPM Package Download
 
-For easy installation on RPM-based systems, download the pre-built RPM package:
+For easy installation on RPM-based systems, download the **latest** pre-built RPM package from the GitHub Releases page or the `packaging/` directory in this repository.
 
-[Download aiterminal-desktop-1.0.0-1.noarch.rpm](https://github.com/ftsiadimos/aiterminal/blob/main/AIDesktop/aiterminal-desktop-1.0.0-1.noarch.rpm)
+- Packaging directory: `AIDesktop/packaging/`
+- Direct download (packaging): [aiterminal-desktop.rpm](packaging/)
 
-Then install with:
+Install the RPM using the exact filename or a wildcard from the directory where the RPM was downloaded:
+
+
 ```bash
-sudo dnf install aiterminal-desktop-1.0.0-1.noarch.rpm
+# Install specific RPM file
+sudo dnf install ./aiterminal-desktop-<version>.noarch.rpm
+
+# Or install the latest matching RPM in the current directory
+sudo dnf install ./aiterminal-desktop-*.noarch.rpm
 ```
 
 ### Automated Installation (Recommended)
@@ -157,28 +156,6 @@ chmod +x main.py
 - "Check disk usage"
 - "What processes are using the most memory?"
 - "Create a new directory called test"
-
-## Creating a Desktop Entry (Optional)
-
-Create a `.desktop` file for easy launching:
-
-```bash
-# Create the desktop file
-cat > ~/.local/share/applications/aiterminal-desktop.desktop <<EOF
-[Desktop Entry]
-Version=1.0
-Type=Application
-Name=AI Terminal Desktop
-Comment=AI-powered terminal with SSH and Ollama
-Exec=/path/to/AIDesktop/main.py
-Icon=utilities-terminal
-Terminal=false
-Categories=System;Utility;
-EOF
-
-# Make it executable
-chmod +x ~/.local/share/applications/aiterminal-desktop.desktop
-```
 
 ## Troubleshooting
 

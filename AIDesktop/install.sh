@@ -76,6 +76,22 @@ if [ "$create_desktop" = "y" ] || [ "$create_desktop" = "Y" ]; then
     
     mkdir -p "$HOME/.local/share/applications"
     
+    # Install the application icon for the desktop entry
+    ICON_SRC="$SCRIPT_DIR/logoaitermin.png"
+    if [ -f "$ICON_SRC" ]; then
+        echo "Installing application icon..."
+        mkdir -p "$HOME/.local/share/icons/hicolor/scalable/apps"
+        cp "$ICON_SRC" "$HOME/.local/share/icons/hicolor/scalable/apps/aiterminal-desktop.png"
+        echo "Icon installed to: $HOME/.local/share/icons/hicolor/scalable/apps/aiterminal-desktop.png"
+        # If xdg-icon-resource is available, register the icon (user-level)
+        if command -v xdg-icon-resource &> /dev/null; then
+            xdg-icon-resource install --context apps --size scalable "$ICON_SRC" aiterminal-desktop || true
+            echo "Registered icon with xdg-icon-resource"
+        fi
+    else
+        echo "Icon source not found: $ICON_SRC (skipping icon install)"
+    fi
+
     cat > "$DESKTOP_FILE" <<EOF
 [Desktop Entry]
 Version=$VERSION
@@ -83,11 +99,11 @@ Type=Application
 Name=AI Terminal Desktop
 Comment=AI-powered terminal with SSH and Ollama
 Exec=python3 $CURRENT_DIR/main.py
-Icon=utilities-terminal
+Icon=aiterminal-desktop
 Terminal=false
 Categories=System;Utility;
 EOF
-    
+
     chmod +x "$DESKTOP_FILE"
     echo "Desktop entry created at $DESKTOP_FILE"
 fi
