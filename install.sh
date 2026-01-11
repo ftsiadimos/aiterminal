@@ -15,6 +15,50 @@ if [ ! -f /etc/fedora-release ]; then
     echo "Warning: This script is designed for Fedora. Continuing anyway..."
 fi
 
+# Parse CLI options for non-interactive/scripted installs
+INSTALL_DEV=""
+INSTALL_PY=""
+ASSUME_YES=""
+
+print_usage() {
+    cat <<USAGE
+Usage: $0 [options]
+
+Options:
+  --with-dev             Install development packages (python3-devel, gtk4-devel, gobject-introspection-devel, cairo-devel, cairo-gobject-devel, python3-cairo)
+  --with-python-pkgs     Install Python packages (pip3 if missing, paramiko, requests, python-dotenv) at user level
+  -y, --yes              Assume yes to prompts
+  -h, --help             Show this help message and exit
+USAGE
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --with-dev)
+            INSTALL_DEV="yes"
+            shift
+            ;;
+        --with-python-pkgs)
+            INSTALL_PY="yes"
+            shift
+            ;;
+        -y|--yes)
+            ASSUME_YES="yes"
+            shift
+            ;;
+        -h|--help)
+            print_usage
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            print_usage
+            exit 1
+            ;;
+    esac
+done
+
+
 # Install runtime system dependencies (keeps installer minimal)
 echo "Installing runtime system dependencies..."
 sudo dnf install -y \
@@ -32,7 +76,18 @@ fi
 
 # Optional development and build-time packages
 # These are only necessary if you plan to build extensions, compile bindings, or develop locally.
-read -p "Install development packages (python3-devel, gtk4-devel, gobject-introspection-devel, cairo-devel, cairo-gobject-devel, python3-cairo)? (y/N) " install_dev
+# Decide whether to install development packages (honor CLI flag and non-interactive shells)
+if [ "$INSTALL_DEV" = "yes" ]; then
+    install_dev="y"
+elif [ "$ASSUME_YES" = "yes" ]; then
+    install_dev="y"
+elif [ -t 0 ]; then
+    read -p "Install development packages (python3-devel, gtk4-devel, gobject-introspection-devel, cairo-devel, cairo-gobject-devel, python3-cairo)? (y/N) " install_dev
+else
+    # Non-interactive and user didn't opt-in via flag; skip by default
+    install_dev="n"
+fi
+
 if [[ "$install_dev" =~ ^[Yy]$ ]]; then
     echo "Installing development packages..."
     sudo dnf install -y \
@@ -52,7 +107,18 @@ else
 fi
 
 # Optionally install pip (if missing) and Python packages
-read -p "Install pip and Python packages (paramiko, requests, python-dotenv) for user? (y/N) " install_python_pkgs
+# Decide whether to install pip and Python packages (honor CLI flag and non-interactive shells)
+if [ "$INSTALL_PY" = "yes" ]; then
+    install_python_pkgs="y"
+elif [ "$ASSUME_YES" = "yes" ]; then
+    install_python_pkgs="y"
+elif [ -t 0 ]; then
+    read -p "Install pip and Python packages (paramiko, requests, python-dotenv) for user? (y/N) " install_python_pkgs
+else
+    # Non-interactive and user didn't opt-in via flag; skip by default
+    install_python_pkgs="n"
+fi
+
 if [[ "$install_python_pkgs" =~ ^[Yy]$ ]]; then
     if ! command -v pip3 &> /dev/null; then
         echo "pip3 not found, installing pip3..."
@@ -67,14 +133,8 @@ else
     echo "Skipping pip/python package installation. You can install them later with: pip3 install --user paramiko requests python-dotenv"
 fi
 
-# Install additional Python packages user-level (not in venv)
-echo ""
-echo "Installing additional Python dependencies..."
-pip3 install --user paramiko requests python-dotenv
-
-if [ $? -ne 0 ]; then
-    echo "Warning: Failed to install some Python dependencies, but continuing..."
-fi
+# Additional Python packages are installed above only if you chose to install them (controlled by the prompt).
+# Removed unconditional pip installation to respect the user's choice.
 
 # Check if Ollama is installed
 echo ""

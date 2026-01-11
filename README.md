@@ -72,6 +72,27 @@ The script will prompt you for:
 - Whether to install Ollama (if not present)
 - Whether to create a desktop entry
 
+Installer options (non-interactive)
+
+The installer supports CLI flags for scripted or CI installs. By default it installs runtime packages and prompts interactively for optional components.
+
+- `--with-dev` — install development/build-time packages (e.g., `python3-devel`, `gtk4-devel`, `gobject-introspection-devel`, `cairo-devel`, `python3-cairo`). Useful for building bindings or developing locally.
+- `--with-python-pkgs` — install `pip3` (if missing) and Python packages (`paramiko`, `requests`, `python-dotenv`) at user level.
+- `-y` / `--yes` — assume **yes** for all prompts and run non-interactively.
+
+Examples:
+```bash
+# Interactive installer (default prompts):
+./install.sh
+
+# Non-interactive: install dev packages and python packages
+./install.sh --with-dev --with-python-pkgs -y
+```
+
+Notes:
+- The installer skips optional components by default when run non-interactively (unless flags are provided).
+- Runtime packages installed by default: `gtk4`, `libadwaita`, `python3-gobject`, `python3-paramiko`, `python3-requests`, `python3-dotenv`.
+
 This is the easiest way to get started and ensures all dependencies are properly installed.
 
 ### Manual Installation
