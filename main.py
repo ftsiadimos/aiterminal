@@ -266,6 +266,20 @@ class AITerminalWindow(Adw.ApplicationWindow):
         settings_button.set_icon_name("preferences-system-symbolic")
         settings_button.connect("clicked", self.on_show_settings)
         header.pack_end(settings_button)
+
+        # Open Terminal (plain, no AI) button
+        self.open_term_btn = Gtk.Button()
+        self.open_term_btn.set_icon_name("utilities-terminal")
+        self.open_term_btn.set_tooltip_text("Open plain terminal window")
+        self.open_term_btn.connect("clicked", self.on_open_terminal)
+        header.pack_end(self.open_term_btn)
+
+        # Split Terminal button (adds a split pane with a plain terminal)
+        self.split_term_btn = Gtk.Button()
+        self.split_term_btn.set_icon_name("view-split-left-right-symbolic")
+        self.split_term_btn.set_tooltip_text("Split main window with a plain terminal")
+        self.split_term_btn.connect("clicked", self.on_toggle_split_terminal)
+        header.pack_end(self.split_term_btn)
         
         # Menu button
         menu_button = Gtk.MenuButton()
@@ -523,6 +537,11 @@ class AITerminalWindow(Adw.ApplicationWindow):
         self.chat_buffer.create_tag("output", family="monospace", foreground="#aaaaaa")  # Gray
         self.chat_buffer.create_tag("prompt", foreground="#00ff00")  # Green
         
+        # Create a persistent end mark to avoid creating new marks on every append
+        end_iter = self.chat_buffer.get_end_iter()
+        self.chat_end_mark = self.chat_buffer.create_mark("chat_end", end_iter, False)
+        self._chat_scroll_pending = False
+        
         # Scrolled window for chat
         chat_scroll = Gtk.ScrolledWindow()
         chat_scroll.set_child(self.chat_view)
@@ -582,7 +601,603 @@ class AITerminalWindow(Adw.ApplicationWindow):
         self.add_controller(window_key_controller)
         
         return content_box
-    
+
+    # -------------------- Terminal Pane / Window (no-AI terminals) -------------------- 🔧
+    class TerminalPane(Gtk.Box):
+        """A full-featured terminal pane that shares the AI terminal's connection.
+        Styled to match the main AI terminal with command history, tab completion, etc.
+        Uses the parent window's ssh_client - no separate connection management.
+        Supports streaming output and Ctrl+C to interrupt commands."""
+        def __init__(self, parent_window, show_close=True):
+            super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+            self.parent = parent_window
+            self.show_close = show_close
+            
+            # Command history for this pane
+            self.command_history = []
+            self.history_position = -1
+            self.current_input_text = ''
+            
+            # Tab completion state
+            self.completions = []
+            self.completion_index = 0
+            self.last_completion_text = ""
+            
+            # Running command state
+            self.command_running = False
+
+            # Minimal top bar with status and close button only
+            ctrl_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+            ctrl_box.set_margin_start(12)
+            ctrl_box.set_margin_end(12)
+            ctrl_box.set_margin_top(6)
+            ctrl_box.set_margin_bottom(6)
+            ctrl_box.add_css_class("toolbar")
+            
+            # Title label
+            title_label = Gtk.Label(label="Plain Terminal")
+            title_label.add_css_class("heading")
+            ctrl_box.append(title_label)
+            
+            ctrl_box.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
+
+            # Status label (shows connection status from parent)
+            self.term_status = Gtk.Label(label="")
+            self.term_status.add_css_class("dim-label")
+            ctrl_box.append(self.term_status)
+            
+            # Spacer to push close button to the right
+            spacer = Gtk.Box()
+            spacer.set_hexpand(True)
+            ctrl_box.append(spacer)
+
+            if self.show_close:
+                close_btn = Gtk.Button(label="✕ Close")
+                close_btn.connect("clicked", self.on_close_clicked)
+                ctrl_box.append(close_btn)
+
+            self.append(ctrl_box)
+            self.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
+
+            # Output view (styled like the main chat view)
+            self.term_view = Gtk.TextView()
+            self.term_view.set_editable(False)
+            self.term_view.set_cursor_visible(False)
+            self.term_view.set_focusable(True)
+            self.term_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+            self.term_view.set_margin_start(16)
+            self.term_view.set_margin_end(16)
+            self.term_view.set_margin_top(16)
+            self.term_view.set_margin_bottom(16)
+            self.term_view.add_css_class("monospace")
+            
+            # Add key controller for Ctrl+C in the output view
+            view_key_controller = Gtk.EventControllerKey()
+            view_key_controller.connect("key-pressed", self.on_view_key_pressed)
+            self.term_view.add_controller(view_key_controller)
+            
+            self.term_buffer = self.term_view.get_buffer()
+            # Create text tags for formatting - terminal-style colors (same as main)
+            self.term_buffer.create_tag("command", family="monospace", foreground="#ff00ff", weight=Pango.Weight.BOLD)  # Magenta
+            self.term_buffer.create_tag("output", family="monospace", foreground="#aaaaaa")  # Gray
+            self.term_buffer.create_tag("system", foreground="#ffff00", style=Pango.Style.ITALIC)  # Yellow
+            self.term_buffer.create_tag("error", foreground="#ff5555")  # Red
+            self.term_buffer.create_tag("success", foreground="#00ff00")  # Green
+            self.term_buffer.create_tag("cwd", foreground="#00ffff")  # Cyan
+            
+            # Create a persistent end mark to avoid creating new marks on every append
+            end_iter = self.term_buffer.get_end_iter()
+            self.end_mark = self.term_buffer.create_mark("end", end_iter, False)
+            
+            # Scroll throttling to prevent flickering
+            self._scroll_pending = False
+
+            self.term_scroll = Gtk.ScrolledWindow()
+            self.term_scroll.set_child(self.term_view)
+            self.term_scroll.set_vexpand(True)
+            self.append(self.term_scroll)
+
+            # Input area at bottom (styled exactly like the main AI terminal)
+            input_frame = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+            input_frame.add_css_class("toolbar")
+            
+            input_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            input_box.set_margin_start(16)
+            input_box.set_margin_end(16)
+            input_box.set_margin_top(12)
+            input_box.set_margin_bottom(12)
+            
+            # Terminal prompt symbol (same as main)
+            prompt_label = Gtk.Label(label="$")
+            prompt_label.add_css_class("title-2")
+            input_box.append(prompt_label)
+            
+            # Input entry
+            self.term_entry = Gtk.Entry()
+            self.term_entry.set_placeholder_text("Enter command... (↑↓ history, Tab completion)")
+            self.term_entry.set_hexpand(True)
+            self.term_entry.connect("activate", self.on_send_command)
+            
+            # Add key controller for history and tab completion
+            key_controller = Gtk.EventControllerKey()
+            key_controller.connect("key-pressed", self.on_key_pressed)
+            self.term_entry.add_controller(key_controller)
+            
+            input_box.append(self.term_entry)
+
+            send_btn = Gtk.Button(label="Send")
+            send_btn.add_css_class("suggested-action")
+            send_btn.connect("clicked", self.on_send_command)
+            input_box.append(send_btn)
+
+            clear_btn = Gtk.Button(label="Clear")
+            clear_btn.connect("clicked", self.on_clear)
+            input_box.append(clear_btn)
+
+            input_frame.append(input_box)
+            self.append(input_frame)
+            
+            # Update status from parent's connection (after UI is fully built)
+            self._sync_status()
+
+        def on_key_pressed(self, controller, keyval, keycode, state):
+            """Handle key press events for tab completion, history navigation, and Ctrl+C"""
+            from gi.repository import Gdk
+            
+            # Ctrl+C to interrupt running command
+            if keyval == Gdk.KEY_c and (state & Gdk.ModifierType.CONTROL_MASK):
+                if self.command_running:
+                    self._interrupt_command()
+                    return True
+                # If no command running, let it pass through (copy behavior)
+                return False
+            
+            # Tab completion
+            if keyval == Gdk.KEY_Tab:
+                self.handle_tab_completion()
+                return True
+            
+            # History navigation: Up / Down arrows
+            elif keyval == Gdk.KEY_Up:
+                if not self.command_history:
+                    return True
+                if self.history_position == -1:
+                    self.current_input_text = self.term_entry.get_text()
+                    self.history_position = len(self.command_history) - 1
+                else:
+                    if self.history_position > 0:
+                        self.history_position -= 1
+                self.term_entry.set_text(self.command_history[self.history_position])
+                self.term_entry.set_position(-1)
+                return True
+            elif keyval == Gdk.KEY_Down:
+                if self.history_position == -1:
+                    return True
+                if self.history_position < len(self.command_history) - 1:
+                    self.history_position += 1
+                    self.term_entry.set_text(self.command_history[self.history_position])
+                else:
+                    self.history_position = -1
+                    self.term_entry.set_text(self.current_input_text)
+                self.term_entry.set_position(-1)
+                return True
+            # Ctrl+L to clear screen
+            elif keyval == Gdk.KEY_l and (state & Gdk.ModifierType.CONTROL_MASK):
+                self.term_buffer.set_text("")
+                return True
+            else:
+                # Reset completion state on any other key
+                self.completions = []
+                self.completion_index = 0
+                self.last_completion_text = ""
+            
+            return False
+        
+        def handle_tab_completion(self):
+            """Handle tab completion using parent's ssh_client"""
+            client = getattr(self.parent, 'ssh_client', None)
+            if not client or not getattr(client, 'connected', False):
+                return
+            
+            current_text = self.term_entry.get_text()
+            cursor_pos = self.term_entry.get_position()
+            text_before_cursor = current_text[:cursor_pos]
+            words = text_before_cursor.split()
+            if not words:
+                return
+            
+            partial_word = words[-1] if words else ""
+            
+            if current_text != self.last_completion_text or not self.completions:
+                def get_completions_thread():
+                    completions = client.get_completions(partial_word)
+                    GLib.idle_add(self._apply_completions, completions, current_text, partial_word)
+                
+                thread = threading.Thread(target=get_completions_thread, daemon=True)
+                thread.start()
+            else:
+                if self.completions:
+                    self.completion_index = (self.completion_index + 1) % len(self.completions)
+                    self._apply_single_completion(self.completions[self.completion_index], current_text, partial_word)
+        
+        def _apply_completions(self, completions, original_text, partial_word):
+            self.completions = completions
+            self.completion_index = 0
+            self.last_completion_text = original_text
+            
+            if completions:
+                if len(completions) == 1:
+                    self._apply_single_completion(completions[0], original_text, partial_word)
+                else:
+                    # Show available options and apply first one
+                    self._apply_single_completion(completions[0], original_text, partial_word)
+                    # Display available options in a formatted list
+                    options_display = "  ".join(completions[:20])  # Show up to 20 options
+                    if len(completions) > 20:
+                        options_display += f"  ... (+{len(completions) - 20} more)"
+                    self._append_output(f"{options_display}\n", tag="output")
+            return False
+        
+        def _apply_single_completion(self, completion, original_text, partial_word):
+            cursor_pos = self.term_entry.get_position()
+            text_before = original_text[:cursor_pos]
+            text_after = original_text[cursor_pos:]
+            
+            if partial_word:
+                prefix = text_before[:-len(partial_word)]
+                new_text = prefix + completion + text_after
+            else:
+                new_text = text_before + completion + text_after
+            
+            self.term_entry.set_text(new_text)
+            new_pos = len(prefix) + len(completion) if partial_word else cursor_pos + len(completion)
+            self.term_entry.set_position(new_pos)
+
+        def _sync_status(self):
+            """Sync status label with parent's connection state"""
+            client = getattr(self.parent, 'ssh_client', None)
+            if client and getattr(client, 'connected', False):
+                # Check if it's local or SSH
+                if hasattr(client, 'host'):
+                    self.term_status.set_label(f"Following AI: SSH")
+                else:
+                    self.term_status.set_label("Following AI: Local")
+                cwd = getattr(client, 'current_directory', None)
+                self._append_output("Plain Terminal - following AI terminal connection\n", tag="system")
+                if cwd:
+                    self._append_output(f"Working directory: {cwd}\n", tag="cwd")
+                self._append_output("Type commands and press Enter. Use ↑↓ for history, Tab for completion, Ctrl+L to clear.\n", tag="system")
+                self._append_output("Use Ctrl+C to interrupt running commands (like ping).\n\n", tag="system")
+            else:
+                self.term_status.set_label("Not connected")
+                self._append_output("Waiting for AI terminal to connect...\n", tag="system")
+        
+        def _interrupt_command(self):
+            """Interrupt the currently running command"""
+            client = getattr(self.parent, 'ssh_client', None)
+            if client and hasattr(client, 'interrupt_command'):
+                if client.interrupt_command():
+                    self._append_output("^C\n", tag="error")
+                    self.command_running = False
+
+        def on_send_command(self, widget):
+            cmd = self.term_entry.get_text().strip()
+            if not cmd:
+                return
+            
+            # Use parent's ssh_client
+            client = getattr(self.parent, 'ssh_client', None)
+            if not client or not getattr(client, 'connected', False):
+                self._append_output("AI terminal not connected. Please connect the AI terminal first.\n", tag="error")
+                return
+            
+            # Don't start a new command if one is running
+            if self.command_running:
+                self._append_output("Command already running. Use Ctrl+C to interrupt.\n", tag="error")
+                return
+            
+            # Add to history (avoid consecutive duplicates)
+            if not self.command_history or self.command_history[-1] != cmd:
+                self.command_history.append(cmd)
+            self.history_position = -1
+            self.current_input_text = ''
+
+            # Append command to pane output
+            cwd = getattr(client, 'current_directory', None)
+            if cwd:
+                self._append_output(f"[{cwd}]$ ", tag="cwd")
+            else:
+                self._append_output("$ ", tag="cwd")
+            self._append_output(f"{cmd}\n", tag="command")
+            self.term_entry.set_text("")
+            
+            # Mark command as running
+            self.command_running = True
+            self.term_status.set_label("Running...")
+
+            def output_callback(text):
+                """Called with each chunk of output"""
+                GLib.idle_add(self._append_output, text, "output")
+
+            def run_thread():
+                try:
+                    # Use streaming execution if available
+                    if hasattr(client, '_execute_streaming'):
+                        ok, out = client.execute_command(cmd, output_callback=output_callback)
+                    else:
+                        ok, out = client.execute_command(cmd)
+                        if out:
+                            GLib.idle_add(self._append_output, out, "output")
+                    GLib.idle_add(self._on_command_complete, ok, cmd, cwd, client)
+                except Exception as e:
+                    GLib.idle_add(self._on_command_complete, False, cmd, cwd, client, str(e))
+
+            thread = threading.Thread(target=run_thread, daemon=True)
+            thread.start()
+        
+        def _on_command_complete(self, ok, cmd, old_cwd, client, error=None):
+            self.command_running = False
+            
+            # Update status back to normal
+            if hasattr(client, 'host'):
+                self.term_status.set_label("Following AI: SSH")
+            else:
+                self.term_status.set_label("Following AI: Local")
+            
+            if error:
+                self._append_output(f"Error: {error}\n", tag="error")
+            elif ok:
+                # Check if directory changed
+                new_cwd = getattr(client, 'current_directory', None)
+                if new_cwd and new_cwd != old_cwd:
+                    self._append_output(f"→ Changed to: {new_cwd}\n", tag="cwd")
+            
+            self._append_output("\n")
+            return False
+
+        def on_view_key_pressed(self, controller, keyval, keycode, state):
+            """Handle key press events in the output view (mainly for Ctrl+C)"""
+            from gi.repository import Gdk
+            
+            # Ctrl+C to interrupt running command
+            if keyval == Gdk.KEY_c and (state & Gdk.ModifierType.CONTROL_MASK):
+                if self.command_running:
+                    self._interrupt_command()
+                    return True
+            return False
+
+        def on_clear(self, button):
+            self.term_buffer.set_text("")
+
+        def _append_output(self, text, tag=None):
+            end_iter = self.term_buffer.get_end_iter()
+            if tag:
+                self.term_buffer.insert_with_tags_by_name(end_iter, text, tag)
+            else:
+                self.term_buffer.insert(end_iter, text)
+            
+            # Move the persistent end mark to the new end
+            self.term_buffer.move_mark(self.end_mark, self.term_buffer.get_end_iter())
+            
+            # Throttled scroll - only schedule one scroll at a time
+            if not self._scroll_pending:
+                self._scroll_pending = True
+                GLib.idle_add(self._do_scroll)
+        
+        def _do_scroll(self):
+            """Perform the actual scroll (called via idle_add to batch scrolls)"""
+            self._scroll_pending = False
+            try:
+                # Scroll to the end mark
+                self.term_view.scroll_mark_onscreen(self.end_mark)
+            except Exception:
+                pass
+            return False  # Don't repeat
+
+        def on_close_clicked(self, button):
+            # Plain terminal shares parent's connection - don't disconnect
+            # Just close this pane/window
+            
+            # If this pane was created inside a split, ask parent to remove it
+            if getattr(self.parent, 'remove_split_terminal', None):
+                self.parent.remove_split_terminal()
+            else:
+                # Otherwise, try to close its toplevel window
+                toplevel = self.get_ancestor(Gtk.Window)
+                if toplevel and toplevel != self.parent:
+                    toplevel.close()
+
+    def _create_window_shell(self, window):
+        """Attach the same top header and bottom status bar to a new window
+        so the plain terminal window looks consistent with the main window.
+        Returns the content container (a vertical box) where the caller can add
+        the window's main content."""
+        main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        window.set_child(main_box)
+
+        # Header (reuse same buttons and callbacks but create new widgets)
+        header = Adw.HeaderBar()
+        main_box.append(header)
+
+        header.set_title_widget(Gtk.Label(label="AI Terminal Desktop"))
+
+        # Settings button
+        settings_button = Gtk.Button()
+        settings_button.set_icon_name("preferences-system-symbolic")
+        settings_button.connect("clicked", self.on_show_settings)
+        header.pack_end(settings_button)
+
+        # Open terminal (this will open another plain terminal window)
+        open_btn = Gtk.Button()
+        open_btn.set_icon_name("utilities-terminal")
+        open_btn.set_tooltip_text("Open plain terminal window")
+        open_btn.connect("clicked", self.on_open_terminal)
+        header.pack_end(open_btn)
+
+        # Split toggle (affects main window split)
+        split_btn = Gtk.Button()
+        split_btn.set_icon_name("view-split-left-right-symbolic")
+        split_btn.set_tooltip_text("Toggle split terminal in main window")
+        split_btn.connect("clicked", self.on_toggle_split_terminal)
+        header.pack_end(split_btn)
+
+        # Menu
+        menu_button = Gtk.MenuButton()
+        menu_button.set_icon_name("open-menu-symbolic")
+        header.pack_end(menu_button)
+        menu = Gio.Menu()
+        menu.append("About", "app.about")
+        menu.append("Quit", "app.quit")
+        menu_button.set_menu_model(menu)
+
+        # Status bar (create local labels and sync their text with main window)
+        status_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        status_box.set_margin_start(12)
+        status_box.set_margin_end(12)
+        status_box.set_margin_top(6)
+        status_box.set_margin_bottom(6)
+        status_box.add_css_class("toolbar")
+
+        ssh_label = Gtk.Label(label=self.ssh_status_label.get_label())
+        ssh_label.add_css_class("dim-label")
+        status_box.append(ssh_label)
+
+        status_box.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
+
+        ollama_label = Gtk.Label(label=self.ollama_status_label.get_label())
+        ollama_label.add_css_class("dim-label")
+        status_box.append(ollama_label)
+
+        status_box.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
+
+        server_label = Gtk.Label(label="Server:")
+        server_label.add_css_class("dim-label")
+        status_box.append(server_label)
+
+        quick_combo = Gtk.ComboBoxText()
+        quick_combo.append_text("Local")
+        for server in getattr(self, 'ssh_servers', []):
+            quick_combo.append_text(server.get('name', ''))
+        quick_combo.set_active(0)
+        quick_combo.connect("changed", lambda c: self.on_quick_server_connect(c))
+        status_box.append(quick_combo)
+
+        main_box.append(status_box)
+
+        # Sync main window labels to these
+        def _sync(src, dst):
+            dst.set_label(src.get_label())
+
+        # Initial sync
+        ssh_label.set_label(self.ssh_status_label.get_label())
+        ollama_label.set_label(self.ollama_status_label.get_label())
+
+        # Update on changes
+        try:
+            self.ssh_status_label.connect("notify::label", lambda w, p: _sync(w, ssh_label))
+            self.ollama_status_label.connect("notify::label", lambda w, p: _sync(w, ollama_label))
+        except Exception:
+            pass
+
+        return main_box
+
+    def on_open_terminal(self, button):
+        """Open a separate terminal window (no AI)"""
+        win = Gtk.Window(transient_for=self, modal=False)
+        win.set_default_size(900, 500)
+        win.set_title("AI Terminal - Plain Terminal")
+
+        shell_box = self._create_window_shell(win)
+
+        pane = self.TerminalPane(self, show_close=True)
+        shell_box.append(pane)
+        win.present()
+
+    def on_toggle_split_terminal(self, button):
+        """Toggle a split terminal pane inside the main window"""
+        # If already split, remove it
+        if getattr(self, 'split_pane', None):
+            self.remove_split_terminal()
+            # Restore split button state on main header if available
+            try:
+                self.split_term_btn.set_label("Split Terminal")
+                self.split_term_btn.set_tooltip_text("Split main window with a plain terminal")
+            except Exception:
+                pass
+            return
+
+        # Create a paned widget and add the existing main content and a terminal pane
+        paned = Gtk.Paned.new(Gtk.Orientation.HORIZONTAL)
+        # Reparent the existing main_content into the paned start
+        parent_box = self.get_content()
+        # Remove main_content from parent_box
+        parent_box.remove(self.main_content)
+
+        paned.set_start_child(self.main_content)
+        term_pane = self.TerminalPane(self, show_close=True)
+        # Mark that this pane is part of split so close button will remove it
+        term_pane.parent_split = paned
+        paned.set_end_child(term_pane)
+
+        parent_box.append(paned)
+        self.split_pane = paned
+        self.split_terminal_pane = term_pane
+        # Update main header button state
+        try:
+            self.split_term_btn.set_label("Close Split")
+            self.split_term_btn.set_tooltip_text("Close split terminal")
+        except Exception:
+            pass
+
+    def remove_split_terminal(self):
+        """Remove the split terminal and restore the original layout"""
+        if not getattr(self, 'split_pane', None):
+            return
+        
+        parent_box = self.get_content()
+        
+        # IMPORTANT: First unparent main_content from the paned widget
+        # by setting the start_child to None, otherwise main_content
+        # cannot be re-added to parent_box
+        try:
+            self.split_pane.set_start_child(None)
+            self.split_pane.set_end_child(None)
+        except Exception:
+            pass
+        
+        # Now remove the paned from parent_box
+        try:
+            parent_box.remove(self.split_pane)
+        except Exception:
+            pass
+        
+        # Re-add main_content to parent_box
+        try:
+            parent_box.append(self.main_content)
+        except Exception:
+            pass
+        
+        # Cleanup the terminal pane (no disconnect needed - it shares parent's connection)
+        # Just clear the reference
+        
+        self.split_pane = None
+        self.split_terminal_pane = None
+        
+        # Restore split button state on main header if possible
+        try:
+            self.split_term_btn.set_label("Split Terminal")
+            self.split_term_btn.set_tooltip_text("Split main window with a plain terminal")
+        except Exception:
+            pass
+        
+        # Bring focus back to the main chat input for convenience
+        try:
+            self.input_entry.grab_focus()
+        except Exception:
+            pass
+
+    # -------------------- End Terminal Pane / Window --------------------
+
     def append_chat_message(self, role, message, tag=None):
         """Append a message to the chat display - terminal style"""
         # Check if chat_buffer exists (UI might not be fully initialized yet)
@@ -608,10 +1223,11 @@ class AITerminalWindow(Adw.ApplicationWindow):
         end_iter = self.chat_buffer.get_end_iter()
         self.chat_buffer.insert(end_iter, "\n")
         
-        # Auto-scroll to bottom
-        end_iter = self.chat_buffer.get_end_iter()
-        mark = self.chat_buffer.create_mark(None, end_iter, False)
-        self.chat_view.scroll_to_mark(mark, 0.0, True, 0.0, 1.0)
+        # Move persistent end mark and use throttled scroll
+        self.chat_buffer.move_mark(self.chat_end_mark, self.chat_buffer.get_end_iter())
+        if not self._chat_scroll_pending:
+            self._chat_scroll_pending = True
+            GLib.idle_add(self._do_chat_scroll)
     
     def scroll_to_top(self):
         """Scroll the chat view to the top"""
@@ -620,12 +1236,19 @@ class AITerminalWindow(Adw.ApplicationWindow):
             self.chat_view.scroll_to_iter(start_iter, 0.0, True, 0.0, 0.0)
         return False  # Remove from idle queue
     
+    def _do_chat_scroll(self):
+        """Perform the actual chat scroll (called via idle_add to batch scrolls)"""
+        self._chat_scroll_pending = False
+        try:
+            self.chat_view.scroll_mark_onscreen(self.chat_end_mark)
+        except Exception:
+            pass
+        return False  # Don't repeat
+    
     def scroll_to_bottom(self):
         """Scroll the chat view to the bottom"""
         if hasattr(self, 'chat_view') and self.chat_view is not None:
-            end_iter = self.chat_buffer.get_end_iter()
-            mark = self.chat_buffer.create_mark(None, end_iter, False)
-            self.chat_view.scroll_to_mark(mark, 0.0, True, 0.0, 1.0)
+            self.chat_view.scroll_mark_onscreen(self.chat_end_mark)
         return False  # Remove from idle queue
     
     def on_window_key_pressed(self, controller, keyval, keycode, state):
@@ -733,9 +1356,13 @@ class AITerminalWindow(Adw.ApplicationWindow):
                 # Single completion - apply it
                 self.apply_completion(completions[0], original_text, partial_word)
             else:
-                # Multiple completions - show first one and indicate there are more
+                # Multiple completions - show options and apply first one
                 self.apply_completion(completions[0], original_text, partial_word)
-                self.append_chat_message("SYSTEM", f"{len(completions)} completions available. Press Tab again to cycle.", "system")
+                # Display available options in a formatted list
+                options_display = "  ".join(completions[:20])  # Show up to 20 options
+                if len(completions) > 20:
+                    options_display += f"  ... (+{len(completions) - 20} more)"
+                self.append_chat_message("COMPLETIONS", options_display, "output")
         
         return False
     

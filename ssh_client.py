@@ -3,6 +3,10 @@ SSH Client for AI Terminal Desktop
 """
 
 import paramiko
+import shlex
+import re
+import os
+import time
 
 
 class SSHClient:
@@ -15,6 +19,7 @@ class SSHClient:
         self.client = None
         self.connected = False
         self.current_directory = None  # Track current working directory
+        self.running_channel = None  # Track currently running command channel
         
     def connect(self):
         """Connect to SSH server"""
@@ -52,14 +57,23 @@ class SSHClient:
         except Exception as e:
             return False, str(e)
     
-    def execute_command(self, command):
-        """Execute a command on the SSH server, robustly tracking directory changes."""
+    def execute_command(self, command, output_callback=None, timeout=None):
+        """Execute a command on the SSH server with optional streaming output.
+        
+        Args:
+            command: Command to execute
+            output_callback: Optional callback function(text) called for each chunk of output
+            timeout: Optional timeout (not used in streaming mode)
+        
+        Returns:
+            (success, output) tuple
+        """
         try:
             if not self.connected or not self.client:
                 return False, "Not connected"
 
-            import shlex, re
             base_dir = self.current_directory
+            
             def split_commands(cmd):
                 parts = re.split(r'(;|&&)', cmd)
                 result = []
@@ -80,7 +94,7 @@ class SSHClient:
             last_dir = base_dir
             cmds = split_commands(command)
             only_cd = True
-            import os
+            
             for part in cmds:
                 if part in (';', '&&'):
                     continue
@@ -90,16 +104,13 @@ class SSHClient:
                         if len(cd_parts) >= 2:
                             cd_target = cd_parts[1]
                             if last_dir:
-                                # Use shell to resolve, but also update Python-side for .. and .
                                 exec_cmd = f'cd {shlex.quote(last_dir)} && cd {shlex.quote(cd_target)} && pwd'
                                 stdin, stdout, stderr = self.client.exec_command(exec_cmd)
                                 output = stdout.read().decode('utf-8')
                                 error = stderr.read().decode('utf-8')
                                 if output and not error:
-                                    # Use the shell's resolved path
                                     last_dir = output.strip().splitlines()[-1]
                                 else:
-                                    # Fallback to Python-side path resolution
                                     last_dir = os.path.normpath(os.path.join(last_dir, cd_target))
                                     break
                             else:
@@ -116,24 +127,106 @@ class SSHClient:
                         pass
                 else:
                     only_cd = False
+            
             # Update tracked directory
             if last_dir:
                 self.current_directory = last_dir
-            # If the command is only a single cd, don't run anything else, just return the new dir
+            
+            # If the command is only a single cd, don't run anything else
             if only_cd and len(cmds) == 1 and cmds[0].startswith('cd '):
                 return True, last_dir
-            # Otherwise, run the command in the latest directory
+            
+            # Build the full command
             if self.current_directory:
                 full_command = f'cd {shlex.quote(self.current_directory)} && {command}'
             else:
                 full_command = command
+            
+            # For streaming mode with callback
+            if output_callback:
+                return self._execute_streaming(full_command, output_callback)
+            
+            # Non-streaming mode (original behavior)
             stdin, stdout, stderr = self.client.exec_command(full_command)
             output = stdout.read().decode('utf-8')
             error = stderr.read().decode('utf-8')
             result = output if output else error
             return True, result
+            
         except Exception as e:
             return False, str(e)
+    
+    def _execute_streaming(self, command, output_callback):
+        """Execute command with streaming output over SSH"""
+        try:
+            transport = self.client.get_transport()
+            self.running_channel = transport.open_session()
+            self.running_channel.get_pty()  # Request PTY for interactive commands
+            self.running_channel.exec_command(command)
+            
+            all_output = []
+            
+            # Read output in chunks
+            while True:
+                if self.running_channel.recv_ready():
+                    chunk = self.running_channel.recv(4096).decode('utf-8', errors='replace')
+                    if chunk:
+                        all_output.append(chunk)
+                        output_callback(chunk)
+                
+                if self.running_channel.recv_stderr_ready():
+                    chunk = self.running_channel.recv_stderr(4096).decode('utf-8', errors='replace')
+                    if chunk:
+                        all_output.append(chunk)
+                        output_callback(chunk)
+                
+                # Check if command has finished
+                if self.running_channel.exit_status_ready():
+                    # Read any remaining output
+                    while self.running_channel.recv_ready():
+                        chunk = self.running_channel.recv(4096).decode('utf-8', errors='replace')
+                        if chunk:
+                            all_output.append(chunk)
+                            output_callback(chunk)
+                    break
+                
+                time.sleep(0.05)  # Small delay to avoid busy loop
+            
+            self.running_channel.close()
+            self.running_channel = None
+            
+            return True, ''.join(all_output)
+            
+        except Exception as e:
+            if self.running_channel:
+                try:
+                    self.running_channel.close()
+                except:
+                    pass
+                self.running_channel = None
+            return False, str(e)
+    
+    def interrupt_command(self):
+        """Send interrupt signal (Ctrl+C) to running command"""
+        if self.running_channel:
+            try:
+                # Send Ctrl+C character
+                self.running_channel.send('\x03')
+                return True
+            except Exception:
+                pass
+        return False
+    
+    def kill_command(self):
+        """Force close the running command channel"""
+        if self.running_channel:
+            try:
+                self.running_channel.close()
+                self.running_channel = None
+                return True
+            except Exception:
+                pass
+        return False
     
     def get_completions(self, partial_text):
         """Get bash tab completions for partial text"""

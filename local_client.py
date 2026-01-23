@@ -6,20 +6,31 @@ Executes commands locally without SSH
 import subprocess
 import os
 import shlex
+import signal
 
 
 class LocalClient:
     def __init__(self):
         self.connected = True  # Always connected for local mode
         self.current_directory = os.getcwd()
+        self.running_process = None  # Track currently running process
         
     def connect(self):
         """Connect (always succeeds for local mode)"""
         self.current_directory = os.getcwd()
         return True, "Connected to local terminal"
     
-    def execute_command(self, command):
-        """Execute a command locally"""
+    def execute_command(self, command, output_callback=None, timeout=None):
+        """Execute a command locally with optional streaming output
+        
+        Args:
+            command: Command to execute
+            output_callback: Optional callback function(text) called for each chunk of output
+            timeout: Optional timeout in seconds (None = no timeout for streaming)
+        
+        Returns:
+            (success, output) tuple
+        """
         try:
             # Check if this is a cd command
             command_stripped = command.strip()
@@ -46,14 +57,18 @@ class LocalClient:
                 except Exception as e:
                     return True, f"cd: {str(e)}"
             
-            # Execute other commands
+            # For streaming mode with callback
+            if output_callback:
+                return self._execute_streaming(command, output_callback)
+            
+            # Non-streaming mode (original behavior)
             result = subprocess.run(
                 command,
                 shell=True,
                 cwd=self.current_directory,
                 capture_output=True,
                 text=True,
-                timeout=30
+                timeout=timeout or 30
             )
             
             # Combine stdout and stderr
@@ -66,6 +81,75 @@ class LocalClient:
             return False, "Command timed out (30 seconds)"
         except Exception as e:
             return False, str(e)
+    
+    def _execute_streaming(self, command, output_callback):
+        """Execute command with streaming output"""
+        try:
+            # Start process with unbuffered output
+            self.running_process = subprocess.Popen(
+                command,
+                shell=True,
+                cwd=self.current_directory,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,  # Line buffered
+                preexec_fn=os.setsid  # Create new process group for signal handling
+            )
+            
+            all_output = []
+            
+            # Read output line by line
+            try:
+                for line in iter(self.running_process.stdout.readline, ''):
+                    if line:
+                        all_output.append(line)
+                        output_callback(line)
+                    if self.running_process.poll() is not None:
+                        break
+            except Exception:
+                pass
+            
+            # Wait for process to complete
+            self.running_process.wait()
+            return_code = self.running_process.returncode
+            self.running_process = None
+            
+            return True, ''.join(all_output)
+            
+        except Exception as e:
+            self.running_process = None
+            return False, str(e)
+    
+    def interrupt_command(self):
+        """Send interrupt signal (Ctrl+C) to running command"""
+        if self.running_process:
+            try:
+                # Send SIGINT to the process group
+                os.killpg(os.getpgid(self.running_process.pid), signal.SIGINT)
+                return True
+            except Exception:
+                try:
+                    # Fallback: terminate the process
+                    self.running_process.terminate()
+                    return True
+                except Exception:
+                    pass
+        return False
+    
+    def kill_command(self):
+        """Force kill running command"""
+        if self.running_process:
+            try:
+                os.killpg(os.getpgid(self.running_process.pid), signal.SIGKILL)
+                return True
+            except Exception:
+                try:
+                    self.running_process.kill()
+                    return True
+                except Exception:
+                    pass
+        return False
     
     def get_completions(self, partial_text):
         """Get bash tab completions for partial text"""
@@ -93,5 +177,5 @@ class LocalClient:
             return []
     
     def disconnect(self):
-        """Disconnect (no-op for local mode)"""
-        pass
+        """Disconnect (kill any running process)"""
+        self.kill_command()

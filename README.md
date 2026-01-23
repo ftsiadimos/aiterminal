@@ -28,6 +28,24 @@ A GTK4/Libadwaita desktop application for AI-powered terminal operations on Fedo
 - **Settings Persistence**: Save connection settings for quick access
 
 
+## News ✅
+
+### Release 2.0.0 — Plain & Split Terminal (2026-01-23)
+
+Highlights:
+
+- **Plain Terminal**: A new full-featured terminal pane/window that mirrors the AI terminal's connection. It:
+  - Shares the AI terminal's SSH or local connection (no separate "connect" bar or duplicated connection state).
+  - Supports true terminal behavior: PTY support for remote shells, streaming output for long-running commands (e.g., ping), and proper Ctrl+C interrupt handling.
+  - Implements process-group-aware local execution so interrupts and kills behave like a normal terminal.
+  - Includes command history, tab completion, and a clear button for fast workflows.
+
+- **Split Terminal**: Toggle a split view inside the main window to show the plain terminal side-by-side with the AI chat. It:
+  - Reuses the same connection as the AI terminal and keeps status synced.
+  - Allows closing the split and restores the original layout cleanly.
+  - Keeps focus behavior and keyboard shortcuts consistent with the main UI.
+
+
 ## Installation
 
 ### RPM Package Download
