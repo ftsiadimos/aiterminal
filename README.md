@@ -49,7 +49,7 @@ Highlights:
 
 ## Installation
 
-### RPM Package Download
+### RPM Package Download (Recommended)
 
 For easy installation on RPM-based systems, download the **latest** pre-built RPM package from the GitHub Releases page or the `packaging/` directory in this repository.
 
@@ -67,7 +67,7 @@ sudo dnf install ./aiterminal-desktop-<version>.noarch.rpm
 sudo dnf install ./aiterminal-desktop-*.noarch.rpm
 ```
 
-### Automated Installation (Recommended)
+### Automated Installation 
 
 The `install.sh` script automates the entire installation process for Fedora systems. It handles:
 
