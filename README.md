@@ -1,14 +1,15 @@
 # 🤖 AI Terminal Desktop - GNOME Edition
 
-![Screenshot](image.png)
+A polished GNOME desktop application (built with GTK4 and Libadwaita) that combines AI-assisted natural-language command execution with a full-featured terminal interface. Execute commands locally or over SSH, stream long-running command output, and receive concise AI analysis to help interpret results. Designed for Fedora and other GNOME-based Linux distributions.
 
-A GTK4/Libadwaita desktop application for AI-powered terminal operations on Fedora.
+![Screenshot](image.png)
 
 ## Table of Contents
 
 - [Features](#features)
 - [Installation](#installation)
-  - [Automated Installation (Recommended)](#automated-installation-recommended)
+  - [RPM Package Download (Recommended)](#rpm-package-download)
+  - [Automated Installation](#automated-installation-recommended)
   - [Manual Installation](#manual-installation)
 - [Running the Application](#running-the-application)
 - [Usage](#usage)
